@@ -1,0 +1,427 @@
+---
+title: "IOM WebSites User Profiling"
+subtitle: "Based on APACHE Logs"
+date: "`r format(Sys.Date(),  '%d %B %Y')`"
+output:
+  iomdown::pptx_slides
+---
+
+## Objectives
+
+1. Parse and preprocess logs into structured data.
+
+2. Define user sessions based on time intervals.
+
+3. Extract behavioral features (pages visited, time spent, device, etc.).
+
+4. Apply clustering to identify personas.
+
+5. Analyze navigation paths and page popularity.
+
+6. Use insights to suggest website restructuring or mergers.
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      message = FALSE, 
+                      warning = FALSE,
+                      collapse = FALSE,
+                      comment = "#>",
+                      # fig.width = 5.5, fig.height = 4,
+                      fig.retina = 2, 
+                      fig.width = 9,
+                      fig.asp = 0.618,
+                      fig.align = "center",
+                      dev = "ragg_png",
+                      out.width = "90%")
+
+```
+
+
+```{r library, include=FALSE}
+options(scipen = 999) # turn-off scientific notation like 1e+48
+set.seed(1)
+extrafont::loadfonts(quiet=TRUE)
+library(officedown)
+library(iomthemes)
+library(ggplot2)
+library(rvg)
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(knitr)
+
+# turn off the automatic use of showtext functionality, so that the dml function can works properly
+showtext::showtext_auto(FALSE)
+```
+
+
+
+
+```{r dataloadfunction, include=FALSE,  message = FALSE, warning = FALSE}
+
+# Apache access logs typically follow a specific format, 
+# such as the Common Log Format (CLF) or Combined Log Format, which can be customized. 
+# Function to read a compressed log file and load it into a data table
+read_compressed_log <- function(file_path) { 
+
+  
+  access_log <- read.table(gzfile(file_path, "rt"), 
+                           sep = " ", 
+                           fill=TRUE, 
+                           skipNul = TRUE, 
+                           stringsAsFactors = FALSE)
+  
+  col_names <- c("ip",
+                 "client_id",
+                 "user_id", 
+                 "timestamp", 
+                 "tocheck1", 
+                 "request",
+                 "status", 
+                 "size", 
+                 "referer",
+                 "user_agent", 
+                 "vhost", 
+                 "host", 
+                 "hosting_site", 
+                 "pid", 
+                 "request_time",
+                 "forwarded_for", 
+                 "request_id",
+                 "location",
+                 "tocheck2")
+  
+  
+  colnames(access_log) <- col_names
+  #check <- access_log |> filter (tocheck2=="")
+  # table(access_log$tocheck2,  useNA = "ifany")
+  access_log2 <- access_log |>
+    
+    dplyr::select(c(
+    # ip: The IP address of the client making the request: Identify the geographic location of visitors, detect unusual activity or potential security threats (e.g., multiple requests from the same IP).
+                   ip,
+    #  client_id: Typically a hyphen (-), as this field is rarely used: Generally not used for analysis.
+                   client_id,
+    #  user_id: The user ID of the person requesting the document as determined by HTTP authentication: Track authenticated user activity, analyze user behavior, and identify potential unauthorized access.
+                    user_id,       
+    #  timestamp: The date and time of the request: Analyze traffic patterns over time, identify peak usage periods, and correlate with server performance or issues.
+                    timestamp, 
+    # request: The request line from the client, including the HTTP method, requested resource, and HTTP version: Determine the most requested resources, analyze request methods (GET, POST, etc.), and identify potential misuse or attacks.
+                    request,    
+    # status: The HTTP status code returned to the client: : Monitor for errors (e.g., 404 Not Found, 500 Internal Server Error), track successful requests, and identify potential issues with specific resources.
+                    status,    
+    # size: The size of the object returned to the client, in bytes: Analyze bandwidth usage, identify large file transfers, and optimize resource sizes.
+                    size,      
+    #  referer: The URL of the referring page: Understand where traffic is coming from, identify popular referral sources, and detect potential referrer spam.
+                    referer,    
+    #  user_agent: Information about the client's browser and operating system: Determine the most common browsers and devices used by visitors, optimize the website for different user agents, and detect automated bots.
+                    user_agent,     
+    # vhost: The virtual host that handled the request: Monitor traffic and performance for different virtual hosts, identify issues specific to a virtual host.
+                    vhost,     
+    # host: The host header of the request: Similar to vhost, used to analyze traffic and performance for different hosts.
+                    host,    
+    # hosting_site: The site being hosted: Track traffic and performance for different hosted sites, useful in multi-site hosting environments.
+                    hosting_site,     
+    # pid: The process ID of the server process handling the request : Debugging and performance analysis, identify issues with specific server processes.
+                    pid,    
+    # request_time: The time taken to process the request, in milliseconds: Analyze server performance, identify slow requests, and optimize response times.
+                    request_time,    
+    # forwarded_for: The original IP address of the client, used when the request is forwarded by a proxy: Track the true origin of requests, useful for identifying clients behind proxies.
+                    forwarded_for,   
+    # request_id: A unique identifier for the request: Trace and debug specific requests, correlate logs across different systems.
+                     request_id,     
+    # location: The location header of the request, often used in redirects : Track redirects, analyze the flow of traffic, and identify potential issues with redirection.
+                    location )) 
+  return(access_log2)
+}
+```
+
+
+```{r geodata, include=FALSE,  message = FALSE, warning = FALSE}
+# Loading data
+#install.packages("rgeolocate")
+#devtools::install_github("ironholds/rgeolocate")
+#library(rgeolocate)
+#Use the GeoLite2 database to look up the country of an IP address:
+# https://www.maxmind.com/en/accounts/1135970/geoip/downloads  
+# Path to the downloaded GeoLite2 Country database
+db_path <- here::here("ip","GeoLite2-Country.mmdb")
+```
+
+
+```{r data, include=FALSE,  message = FALSE, warning = FALSE}
+logs <- c(
+#  "data-raw/access.log-20250227-web-7732.gz",
+#  "data-raw/access.log-20250227-web-5634.gz",
+#  "data-raw/access.log-20250227-web-6641.gz",
+  "data-raw/access.log-20250227-web-6642.gz"
+)
+
+# Load all the log files into data tables
+log_dataall <- lapply(logs, read_compressed_log)
+
+combined_log_data <- dplyr::bind_rows(log_dataall)
+
+rm(log_dataall, logs)
+
+## Now cleaning what did not correctly parsed...
+combined_log_data_clean <- combined_log_data |>    
+  dplyr::mutate(
+    vhost = gsub("vhost=", "", vhost),
+    host = gsub("host=", "", host),
+    hosting_site = gsub("hosting_site=", "", hosting_site),
+    pid = gsub("pid=", "", pid),
+    request_time = gsub("request_time=", "", request_time),
+    forwarded_for = gsub("forwarded_for=", "", forwarded_for),
+    request_id = gsub("request_id=", "", request_id),
+    location = gsub("location=", "", location), 
+    timestamp = substring(gsub("\\[", "", timestamp), 1, 20)) |>
+  tidyr::separate(request, into = c("request_method",
+                                    "request_resource",
+                                    "request_version"), 
+                  sep = " ")
+
+
+combined_log_data2 <- combined_log_data_clean |>
+  #dplyr::slice_head(n = 1000) |>
+  dplyr::mutate(iplocation_continent = as.character(rgeolocate::maxmind(ip, db_path)$continent_name),
+                iplocation_country = as.character(rgeolocate::maxmind(ip, db_path)$country_name))
+combined_log_data2 <- combined_log_data2 |>
+   dplyr::mutate(size = as.integer(size),
+                 request_time = as.integer(request_time),
+                 user_agent = stringr::str_to_lower(user_agent),
+                 # Convert timestamp to Date-Time format
+                 timestamp = as.POSIXct(timestamp, format="%d/%b/%Y:%H:%M:%S")) |>
+  dplyr::filter(request_time <= 725000000,
+                size <= 13421772800) |>
+
+    # remove all rows with size value NA
+      dplyr::filter(!is.na(size))  |>
+
+   # remove all rows with ip value = "-"
+     dplyr::filter(ip != "-")
+
+# Assuming your data frame is named 'df'
+df <- combined_log_data2  
+
+```
+
+
+
+
+ 
+---
+
+## Traffic patterns over time
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Plot 1: Traffic patterns over time
+mygg <- ggplot(df, aes(x=timestamp)) +
+  geom_histogram(binwidth=3600, fill="blue", color="black") +
+  labs(title="Traffic Patterns Over Time", x="Time", y="Number of Requests") +
+  theme_minimal()
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## HTTP Methods Distribution
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Methods Distribution
+mygg <- ggplot(df, aes(x=request_method)) +
+  geom_bar(fill="green", color="black") +
+  labs(title="HTTP Methods Distribution", x="HTTP Method", y="Count") +
+  theme_minimal()
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+
+---
+
+## HTTP Status Codes
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Status Codes
+mygg <- ggplot(df, aes(x=status)) +
+  geom_bar(fill="red", color="black") +
+  coord_flip()+
+  labs(title="HTTP Status Codes", x="Status Code", y="Count") +
+  theme_minimal()
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+
+---
+
+## Bandwidth Usage by Request Size
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Bandwidth Usage by Request Size
+mygg <- ggplot(df, aes(x=size)) +
+      # binwidth estimate based on Sturges' Rule
+      geom_histogram(binwidth=20000000, fill="purple", color="black") +
+  labs(title="Bandwidth Usage by Request Size", x="Size (bytes)", y="Count") +
+  theme_minimal()
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+
+---
+
+## Request Time Analysis
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Request Time Analysis
+mygg <- ggplot(df, aes(x=request_time)) +
+  # # binwidth estimate based on Sturges' Rule
+  geom_histogram(binwidth=25000000, fill="orange", color="black") +
+  labs(title="Request Time Analysis", x="Request Time (ms)", y="Count") +
+  theme_minimal()
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Traffic by User Agent
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Traffic by User Agent
+mygg <- ggplot(df, aes(x=user_agent)) +
+  geom_bar(fill="cyan", color="black") +
+#  coord_flip()+
+  labs(title="Traffic by User Agent", x="User Agent", y="Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 15)) 
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Traffic by User Agent
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Traffic by User Agent
+mygg <- ggplot(df, aes(x=user_agent)) +
+  geom_bar(fill="cyan", color="black") +
+#  coord_flip()+
+  labs(title="Traffic by User Agent", x="User Agent", y="Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 15)) 
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Traffic by Virtual Host
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Traffic by Virtual Host
+mygg <- ggplot(df, aes(x=vhost)) +
+  geom_bar(fill="yellow", color="black") +
+  coord_flip()+
+  labs(title="Traffic by Virtual Host", x="Virtual Host", y="Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+##  Define User Sessions
+
+Group requests into sessions to analyze user journeys. A session can be defined as a sequence of requests from the same IP with no more than 30 minutes of inactivity.
+
+```{r session, include=FALSE,  message = FALSE, warning = FALSE}
+log_df <- df |> 
+  # Filter successful requests
+  dplyr::filter(status == 200) |> 
+  dplyr::arrange(ip, timestamp) |>
+  dplyr::group_by(ip) |>
+  dplyr::mutate( time_diff = difftime(timestamp, stats::lag(timestamp)) ) #, 
+          # 30 minutes = 1800 seconds
+  # dplyr::mutate( new_session = coalesce(time_diff > 1800, TRUE)    ) |>
+  # dplyr::mutate(session_id = cumsum(new_session)) |>
+  # dplyr::ungroup()
+```
+
+---
+
+## Feature Engineering 
+    
+Extract behavioral features to characterize users:
+      
+- Frequency: Visits per user.
+- Recency: Time since last visit.
+- Content Preferences: Most-visited pages.
+- Device Type: Mobile vs. desktop.
+- Referral Source: Direct, search, or social.
+
+```{r usersession, include=FALSE,  message = FALSE, warning = FALSE}
+user_features <- log_sessions |>
+      group_by(ip, session_id) |>
+      summarise(
+        session_start = min(timestamp),
+        session_end = max(timestamp),
+        session_duration = as.numeric(difftime(session_end,
+                                               session_start,
+                                               units = "secs")),
+        pages_visited = n(),
+        unique_pages = n_distinct(request_resource),
+        top_page = names(which.max(table(request_resource))),
+        device_type = ifelse(str_detect(user_agent, 
+                                        regex("mobile|iphone",
+                                              ignore_case = TRUE)),
+                             "mobile", "desktop"),
+        referrer_type = case_when(
+          str_detect(referer, "google|bing") ~ "search",
+          str_detect(referer, "facebook|twitter") ~ "social",
+          is.na(referer) ~ "direct",
+          TRUE ~ "other"
+        )
+      )
+```
+
+---
+
+## ggplot in left column
+
+```{r ph=officer::ph_location_left()}
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+
+## ggplot in right column
+
+
+- Some
+- Bullets
+
+```{r ph=officer::ph_location_right()}
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+

@@ -344,6 +344,17 @@ mygg <- ggplot(df, aes(x=vhost)) +
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
+
+##  Detecting Security Threats
+
+Monitor the requests that indicate hack attempts:
+ * "GET /?q=node/add HTTP/1.1",
+ * "GET /?q=user/register HTTP/1.1",
+ * "GET /?q=node/add HTTP/1.0", and
+ * "GET /?q=user/register HTTP/1.0" .
+
+if there are many hacking attempts, We can identify the IP that had the highest number of hacking attempts in order to add it to the firewall's deny list.
+ 
 ---
 
 ##  Define User Sessions
@@ -498,14 +509,19 @@ sessions <- log_sessions |>
   group_by(session_id) |>
   summarise(path = paste(request_resource, collapse = " > "))
 
+library(clickstream)
+
+# Convert sessions to clickstreams
+sessions <- log_sessions %>%
+  group_by(session_id) %>%
+  summarise(path = paste(requested_page, collapse = " > "))
+
 # Build Markov chain model
-# clickstreams <- as.clickstreams(sessions$path)
-# clickstreams <- list(clickstreams)
-# tic("Processing time")
-# mc <- fitMarkovChain(clickstreams)
-# toc()
+clickstreams <- as.clickstreams(sessions$path)
+mc <- fitMarkovChain(clickstreams)
+
 # Plot common paths
-# plot(mc)
+plot(mc)
 ```
 
 ---

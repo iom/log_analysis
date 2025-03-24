@@ -402,26 +402,128 @@ user_features <- log_sessions |>
 
 ---
 
-## ggplot in left column
+## User Persona Inference
 
-```{r ph=officer::ph_location_left()}
+```{r userpersonna, include=FALSE,  message = FALSE, warning = FALSE}
+#Use clustering (e.g., k-means or hierarchical clustering) to group users into personas based on their behavior.
+
+# Select features for clustering
+clustering_data <- user_features |>
+      select(session_duration, pages_visited, unique_pages, device_type, referrer_type) |>
+      mutate(device_type = as.factor(device_type), referrer_type = as.factor(referrer_type))
+    
+# Convert factors to numeric (simplified example)
+clustering_data <- model.matrix(~ . -1, data = clustering_data)
+#library(Matrix)
+#clustering_data <- sparse.model.matrix(~ . -1, data = clustering_data) #use sparse matrix to store only no zero value
+    
+# Scale data
+clustering_data_scaled <- scale(clustering_data)
+# clustering_data_scaled <- clustering_data
+# for (col in names(clustering_data)) {
+#   clustering_data_scaled[[col]] <- scale(clustering_data[[col]])
+# }
+    
+# Perform k-means (e.g., 4 personas)
+set.seed(123)
+kmeans_result <- kmeans(clustering_data_scaled, centers = 4)
+# library(skmeans)
+# kmeans_result <- skmeans(clustering_data_scaled, k = 4)
+
+# Assign clusters to users
+user_features$persona <- kmeans_result$cluster
+    
+# Persona Profiles
+persona_profiles <- user_features |>
+      group_by(persona) |>
+      summarise(
+        avg_duration = mean(session_duration),
+        avg_pages = mean(pages_visited),
+        common_device = names(which.max(table(device_type))),
+        common_referrer = names(which.max(table(referrer_type))),
+        sample_size = n()
+      )
+    
+# Output
+persona_profiles
+```
+
+ 
+
+---
+
+## Profiles
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+
+mygg <- ggplot(persona_profiles, aes(x = persona, y = sample_size, fill = common_device)) +
+  geom_col() +
+  labs(title = "User Persona Distribution", x = "Persona", y = "Users")
+
+
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
 ---
+##  Website Restructuring/Merging Insights  
 
 
-## ggplot in right column
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 
+###  Content Popularity Analysis  ######
+page_analysis <- log_df |>
+  count(request_resource) |>
+  mutate(pct = n / sum(n)) |>
+  arrange(desc(n))
 
-- Some
-- Bullets
+# Top 10 pages
+page_analysis |> slice_head(n = 10)
+# Heatmaps: heatmaply to show page popularity.
 
-```{r ph=officer::ph_location_right()}
-
-dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
 ---
+
+##  Navigation Path Analysis 
+
+Use the personas and navigation patterns to guide restructuring:
+
+```{r userpersonna, include=FALSE,  message = FALSE, warning = FALSE}
+### B. Navigation Path Analysis ######
+
+library(clickstream)
+
+# Convert sessions to clickstreams
+sessions <- log_sessions |>
+  group_by(session_id) |>
+  summarise(path = paste(request_resource, collapse = " > "))
+
+# Build Markov chain model
+# clickstreams <- as.clickstreams(sessions$path)
+# clickstreams <- list(clickstreams)
+# tic("Processing time")
+# mc <- fitMarkovChain(clickstreams)
+# toc()
+# Plot common paths
+# plot(mc)
+```
+
+---
+
+# Potential Actionable Recommendations 
+
+- Merge Low-Traffic Pages: Combine pages with <1% traffic into broader categories.
+
+- Merge Blog and Articles Sections:  If /blog and /articles have overlapping content, combine them into /resources.
+
+- Improve Mobile Navigation: Shorten paths for mobile users (e.g., fewer clicks to checkout).
+
+- Personalize Homepage: Redirect search users (Persona 2/4) to in-depth guides &  social users (Persona 1) to visual content (videos/infographics).
+
+- Optimize Navigation for Personas:  Simplify paths for mobile users (Persona 1/3) & Add cross-links between related content for engaged users (Persona 4).
+
+- SEO/Social Alignment: - Tailor content for search-driven personas (Persona 2/4) &  Add social sharing buttons for Persona 1.
+
+
 
 

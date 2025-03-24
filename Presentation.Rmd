@@ -165,7 +165,10 @@ log_dataall <- lapply(logs, read_compressed_log)
 combined_log_data <- dplyr::bind_rows(log_dataall)
 
 rm(log_dataall, logs)
+```
 
+
+```{r data2, include=FALSE,  message = FALSE, warning = FALSE}
 ## Now cleaning what did not correctly parsed...
 combined_log_data_clean <- combined_log_data |>    
   dplyr::mutate(
@@ -177,34 +180,72 @@ combined_log_data_clean <- combined_log_data |>
     forwarded_for = gsub("forwarded_for=", "", forwarded_for),
     request_id = gsub("request_id=", "", request_id),
     location = gsub("location=", "", location), 
-    timestamp = substring(gsub("\\[", "", timestamp), 1, 20)) |>
+    timestamp = substring(gsub("\\[", "", timestamp), 1, 20),
+    status_label = case_when(
+      status == "103" ~ "103: Early Hints",
+      status == "200" ~ "200: OK",
+      status == "201" ~ "201: Created",
+      status == "206" ~ "206: Partial Content",
+      status == "301" ~ "301: Moved Perm",
+      status == "302" ~ "302: Found",
+      status == "303" ~ "303: See Other",
+      status == "307" ~ "307: Temp Redirect",
+      status == "400" ~ "400: Bad Request",
+      status == "403" ~ "403: Forbidden",
+      status == "404" ~ "404: Not Found",
+      status == "406" ~ "406: Not Acceptable",
+      status == "416" ~ "416: Range Not Satisfiable",
+      status == "500" ~ "500: Server Error",
+      status == "503" ~ "503: Service Unavailable",
+      TRUE ~ as.character(status)  # fallback for any unexpected values
+    )) |>
+
+  dplyr::mutate(
+    size = as.integer(size),
+    request_time = as.integer(request_time),
+    user_agent = stringr::str_to_lower(user_agent),
+    # Convert timestamp to Date-Time format
+    timestamp = as.POSIXct(timestamp, format="%d/%b/%Y:%H:%M:%S"),
+    device_type = ifelse(str_detect(user_agent, 
+                                        regex("mobile|iphone",
+                                              ignore_case = TRUE)),
+                             "mobile", "desktop"),
+    # levels(as.factor(df$user_agent))
+    # device_type = ifelse(str_detect(user_agent, 
+    #                                     regex("mobile|iphone",
+    #                                           ignore_case = TRUE)),
+    #                          "mobile", "desktop"),
+    referrer_type = case_when(
+          str_detect(referer, "google|bing") ~ "search",
+          str_detect(referer, "facebook|twitter") ~ "social",
+          is.na(referer) ~ "direct",
+          TRUE ~ "other"
+        )) |>
   tidyr::separate(request, into = c("request_method",
                                     "request_resource",
                                     "request_version"), 
-                  sep = " ")
+                  sep = " ")|>
+  # levels(as.factor(df$request_version))
+  ##Geolocat the ip...
+  dplyr::mutate(iplocation_continent = as.character(rgeolocate::maxmind(ip,
+                                                db_path)$continent_name),
+                iplocation_country = as.character(rgeolocate::maxmind(ip,
+                                                db_path)$country_name))
 
-
-combined_log_data2 <- combined_log_data_clean |>
-  #dplyr::slice_head(n = 1000) |>
-  dplyr::mutate(iplocation_continent = as.character(rgeolocate::maxmind(ip, db_path)$continent_name),
-                iplocation_country = as.character(rgeolocate::maxmind(ip, db_path)$country_name))
-combined_log_data2 <- combined_log_data2 |>
-   dplyr::mutate(size = as.integer(size),
-                 request_time = as.integer(request_time),
-                 user_agent = stringr::str_to_lower(user_agent),
-                 # Convert timestamp to Date-Time format
-                 timestamp = as.POSIXct(timestamp, format="%d/%b/%Y:%H:%M:%S")) |>
-  dplyr::filter(request_time <= 725000000,
-                size <= 13421772800) |>
-
-    # remove all rows with size value NA
-      dplyr::filter(!is.na(size))  |>
-
-   # remove all rows with ip value = "-"
-     dplyr::filter(ip != "-")
+ 
 
 # Assuming your data frame is named 'df'
-df <- combined_log_data2  
+df <- combined_log_data_clean |>
+      # dplyr::slice_head(n = 1000) 
+      # remove all rows with size or request time over a certain threhsold
+      dplyr::filter(request_time <= 725000000,
+                size <= 13421772800) |>
+
+      # remove all rows with size value NA
+      dplyr::filter(!is.na(size))  |>
+
+     # remove all rows with ip value = "-"
+     dplyr::filter(ip != "-")
 
 ```
 
@@ -217,11 +258,109 @@ df <- combined_log_data2
 ## Traffic patterns over time
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
-# Plot 1: Traffic patterns over time
+
 mygg <- ggplot(df, aes(x=timestamp)) +
-  geom_histogram(binwidth=3600, fill="blue", color="black") +
+  geom_histogram(binwidth=3600,
+                 fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
   labs(title="Traffic Patterns Over Time", x="Time", y="Number of Requests") +
-  theme_minimal()
+  iomthemes::theme_iom(  font_size = 18,  grid = "Y")
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## device_type
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Status Codes
+mygg <- ggplot(df |> dplyr::filter(   ! is.na(device_type)),
+               aes(x=device_type)) +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
+  coord_flip()+
+  labs(title="device_type", x="", y="") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## referrer_type
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Status Codes
+mygg <- ggplot(df |> dplyr::filter(   ! is.na(referrer_type)),
+               aes(x=referrer_type)) +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
+  coord_flip()+
+  labs(title="referrer_type", x="", y="") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Country for IP
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Status Codes
+mygg <- df    |>
+  dplyr::mutate(iplocation_country2 = fct_lump_prop(iplocation_country , prop = 0.01 , other_level = "Other lumped (<10% total)" ))   |>
+  dplyr::group_by(iplocation_country2 ) |>
+  dplyr::summarise(total = dplyr::n()) |>
+  dplyr::filter( ! ( is.na(iplocation_country2))) |>
+  ggplot() +
+  aes(x = reorder(iplocation_country2,total),
+      y = total ) +
+  geom_col( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
+  coord_flip()+
+  labs(title="Country for IP", x="", y="") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Region for IP
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Status Codes
+mygg <- ggplot(df |> dplyr::filter(   ! is.na(iplocation_continent)),
+               aes(x=iplocation_continent)) +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
+  coord_flip()+
+  labs(title="Region for IP", x="", y="") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## HTTP Status Codes
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# HTTP Status Codes
+mygg <- ggplot(df |> dplyr::filter( status != "200"),
+               aes(x=status_label)) +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
+  coord_flip()+
+  labs(title="HTTP Status Codes", x="Status Code", y="Count") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -234,9 +373,10 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # HTTP Methods Distribution
 mygg <- ggplot(df, aes(x=request_method)) +
-  geom_bar(fill="green", color="black") +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
   labs(title="HTTP Methods Distribution", x="HTTP Method", y="Count") +
-  theme_minimal()
+  iomthemes::theme_iom(  font_size = 18,  grid = "Y")
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -249,11 +389,13 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # HTTP Status Codes
-mygg <- ggplot(df, aes(x=status)) +
-  geom_bar(fill="red", color="black") +
+mygg <- ggplot(df |> dplyr::filter( status != "200"),
+               aes(x=status)) +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+            color = "white") +
   coord_flip()+
   labs(title="HTTP Status Codes", x="Status Code", y="Count") +
-  theme_minimal()
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -266,11 +408,16 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # Bandwidth Usage by Request Size
-mygg <- ggplot(df, aes(x=size)) +
+mygg <- ggplot(df |> dplyr::filter(size <10000), 
+               aes(x=size)) +
       # binwidth estimate based on Sturges' Rule
-      geom_histogram(binwidth=20000000, fill="purple", color="black") +
-  labs(title="Bandwidth Usage by Request Size", x="Size (bytes)", y="Count") +
-  theme_minimal()
+      geom_histogram(#binwidth=20000000, 
+                 fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
+  labs(title="Bandwidth Usage by Request Size",
+       x="Size (bytes)",
+       y="Count") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "Y")
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -283,11 +430,16 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # Request Time Analysis
-mygg <- ggplot(df, aes(x=request_time)) +
+mygg <- ggplot(df|> dplyr::filter(request_time <100000), 
+                aes(x=request_time)) +
   # # binwidth estimate based on Sturges' Rule
-  geom_histogram(binwidth=25000000, fill="orange", color="black") +
-  labs(title="Request Time Analysis", x="Request Time (ms)", y="Count") +
-  theme_minimal()
+  geom_histogram(#binwidth=25000000, 
+                 fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
+  labs(title="Request Time Analysis", 
+       x="Request Time (ms)",
+       y="Count") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "Y")
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -299,46 +451,41 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # Traffic by User Agent
-mygg <- ggplot(df, aes(x=user_agent)) +
-  geom_bar(fill="cyan", color="black") +
+mygg <- ggplot(df, 
+               aes(x=user_agent)) +
+  geom_bar( fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
 #  coord_flip()+
   labs(title="Traffic by User Agent", x="User Agent", y="Count") +
-  theme_minimal() +
+  iomthemes::theme_iom(  font_size = 18,  grid = "Y") +
   theme(axis.text.x = element_text(angle = 0, hjust = 15)) 
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
----
-
-## Traffic by User Agent
-
-```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
-# Traffic by User Agent
-mygg <- ggplot(df, aes(x=user_agent)) +
-  geom_bar(fill="cyan", color="black") +
-#  coord_flip()+
-  labs(title="Traffic by User Agent", x="User Agent", y="Count") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 0, hjust = 15)) 
-
-
-dml(ggobj = mygg, fonts = list(serif = 'Lato'))
-```
+ 
 
 ---
 
-## Traffic by Virtual Host
+## Traffic by  Host
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # Traffic by Virtual Host
-mygg <- ggplot(df, aes(x=vhost)) +
-  geom_bar(fill="yellow", color="black") +
+mygg <-  df    |>
+  dplyr::mutate(host2 = fct_lump_prop(host , prop = 0.005 , other_level = "Other lumped (<5% total)" ))   |>
+  dplyr::group_by(host2 ) |>
+  dplyr::summarise(total = dplyr::n()) |>
+  dplyr::filter( ! ( is.na(host2))) |>
+  ggplot() +
+  aes(x = reorder(host2,total),
+      y = total ) + 
+  geom_col(
+                 fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
   coord_flip()+
-  labs(title="Traffic by Virtual Host", x="Virtual Host", y="Count") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  labs(title="Traffic by  Host", x=" ", y=" ") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")  
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -364,10 +511,10 @@ Group requests into sessions to analyze user journeys. A session can be defined 
 ```{r session, include=FALSE,  message = FALSE, warning = FALSE}
 log_df <- df |> 
   # Filter successful requests
-  dplyr::filter(status == 200) |> 
+  dplyr::filter(status == "200") |> 
   dplyr::arrange(ip, timestamp) |>
   dplyr::group_by(ip) |>
-  dplyr::mutate( time_diff = difftime(timestamp, stats::lag(timestamp)) ) #, 
+  dplyr::summarise( time_diff = difftime(timestamp, lag(timestamp)) ) #, 
           # 30 minutes = 1800 seconds
   # dplyr::mutate( new_session = coalesce(time_diff > 1800, TRUE)    ) |>
   # dplyr::mutate(session_id = cumsum(new_session)) |>
@@ -397,17 +544,7 @@ user_features <- log_sessions |>
                                                units = "secs")),
         pages_visited = n(),
         unique_pages = n_distinct(request_resource),
-        top_page = names(which.max(table(request_resource))),
-        device_type = ifelse(str_detect(user_agent, 
-                                        regex("mobile|iphone",
-                                              ignore_case = TRUE)),
-                             "mobile", "desktop"),
-        referrer_type = case_when(
-          str_detect(referer, "google|bing") ~ "search",
-          str_detect(referer, "facebook|twitter") ~ "social",
-          is.na(referer) ~ "direct",
-          TRUE ~ "other"
-        )
+        top_page = names(which.max(table(request_resource)))
       )
 ```
 

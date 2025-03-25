@@ -40,6 +40,11 @@ knitr::opts_chunk$set(echo = FALSE,
 
 
 ```{r library, include=FALSE}
+## Install IOM packages
+#install.packages("pak")
+#pak::pkg_install("iom/iomthemes")
+#pak::pkg_install("iom/iomdown")
+
 options(scipen = 999) # turn-off scientific notation like 1e+48
 set.seed(1)
 extrafont::loadfonts(quiet=TRUE)
@@ -60,80 +65,79 @@ showtext::showtext_auto(FALSE)
 
 
 ```{r dataloadfunction, include=FALSE,  message = FALSE, warning = FALSE}
-
-# Apache access logs typically follow a specific format, 
-# such as the Common Log Format (CLF) or Combined Log Format, which can be customized. 
-# Function to read a compressed log file and load it into a data table
+#' Read a Compressed Apache Access Log File
+#'
+#' This function reads a compressed Apache access log file (typically in `.gz` format) 
+#' and loads it into a data table. The logs follow the Common Log Format (CLF) or Combined Log Format 
+#' but may be customized depending on server configurations.
+#'
+#' @param file_path A string specifying the path to the compressed log file.
+#'
+#' @return A data frame containing the parsed access log data with selected columns. 
+#' The columns include:
+#' - `ip`: Client's IP address
+#' - `client_id`: Typically a hyphen (-), rarely used
+#' - `user_id`: Authenticated user ID
+#' - `timestamp`: Date and time of request to Analyze traffic patterns over time
+#' , identify peak usage periods, and correlate with server performance or issues.
+#' - `request`: HTTP request details. Determine the most requested resources, 
+#'  analyze request methods (GET, POST, etc.), and identify potential
+#'   misuse or attacks.
+#' - `status`: HTTP response status codereturned to the client: Monitor 
+#'  for errors (e.g., 404 Not Found, 500 Internal Server Error), 
+#'  track successful requests, and identify potential issues with specific resources
+#' - `size`: Response size in bytes: Analyze bandwidth usage, identify large
+#'  file transfers, and optimize resource sizes.
+#' - `referer`: Referring URL: Understand where traffic is coming from, 
+#' identify popular referral sources, and detect potential referrer spam.
+#' - `user_agent`: Client's browser and OS details: Information about the 
+#' client's browser and operating system: Determine the most common browsers 
+#' and devices used by visitors, optimize the website for different user agents,
+#'  and detect automated bots.
+#' - `vhost`: Virtual host handling the request: used to analyze traffic and 
+#' performance for different hosts.
+#' - `host`: Host header of the request: used to analyze traffic and 
+#' performance for different hosts.
+#' - `hosting_site`: Hosted site name
+#' - `pid`: Process ID of the server handling the request: Debugging and 
+#' performance analysis, identify issues with specific server processes.
+#' - `request_time`: Processing time in milliseconds: Analyze server 
+#' performance, identify slow requests, and optimize response times.
+#' - `forwarded_for`: Original client IP (if forwarded by a proxy): Track the
+#'  true origin of requests, useful for identifying clients behind proxies.
+#' - `request_id`: Unique request identifier: Trace and debug specific requests,
+#'  correlate logs across different systems.
+#' - `location`: Redirect location header: : Track redirects, analyze the flow 
+#' of traffic, and identify potential issues with redirection.
+#'
+#' @examples
+#' 
+#' # Read a compressed log file
+#' log_data <- read_compressed_log("/path/to/access.log.gz")
+#' head(log_data)
+#'
+#' @import dplyr
+#' @export
 read_compressed_log <- function(file_path) { 
 
-  
   access_log <- read.table(gzfile(file_path, "rt"), 
                            sep = " ", 
-                           fill=TRUE, 
+                           fill = TRUE, 
                            skipNul = TRUE, 
                            stringsAsFactors = FALSE)
   
-  col_names <- c("ip",
-                 "client_id",
-                 "user_id", 
-                 "timestamp", 
-                 "tocheck1", 
-                 "request",
-                 "status", 
-                 "size", 
-                 "referer",
-                 "user_agent", 
-                 "vhost", 
-                 "host", 
-                 "hosting_site", 
-                 "pid", 
-                 "request_time",
-                 "forwarded_for", 
-                 "request_id",
-                 "location",
-                 "tocheck2")
-  
+  col_names <- c("ip", "client_id", "user_id", "timestamp", "tocheck1", "request", 
+                 "status", "size", "referer", "user_agent", "vhost", "host", 
+                 "hosting_site", "pid", "request_time", "forwarded_for", 
+                 "request_id", "location", "tocheck2")
   
   colnames(access_log) <- col_names
-  #check <- access_log |> filter (tocheck2=="")
-  # table(access_log$tocheck2,  useNA = "ifany")
-  access_log2 <- access_log |>
-    
-    dplyr::select(c(
-    # ip: The IP address of the client making the request: Identify the geographic location of visitors, detect unusual activity or potential security threats (e.g., multiple requests from the same IP).
-                   ip,
-    #  client_id: Typically a hyphen (-), as this field is rarely used: Generally not used for analysis.
-                   client_id,
-    #  user_id: The user ID of the person requesting the document as determined by HTTP authentication: Track authenticated user activity, analyze user behavior, and identify potential unauthorized access.
-                    user_id,       
-    #  timestamp: The date and time of the request: Analyze traffic patterns over time, identify peak usage periods, and correlate with server performance or issues.
-                    timestamp, 
-    # request: The request line from the client, including the HTTP method, requested resource, and HTTP version: Determine the most requested resources, analyze request methods (GET, POST, etc.), and identify potential misuse or attacks.
-                    request,    
-    # status: The HTTP status code returned to the client: : Monitor for errors (e.g., 404 Not Found, 500 Internal Server Error), track successful requests, and identify potential issues with specific resources.
-                    status,    
-    # size: The size of the object returned to the client, in bytes: Analyze bandwidth usage, identify large file transfers, and optimize resource sizes.
-                    size,      
-    #  referer: The URL of the referring page: Understand where traffic is coming from, identify popular referral sources, and detect potential referrer spam.
-                    referer,    
-    #  user_agent: Information about the client's browser and operating system: Determine the most common browsers and devices used by visitors, optimize the website for different user agents, and detect automated bots.
-                    user_agent,     
-    # vhost: The virtual host that handled the request: Monitor traffic and performance for different virtual hosts, identify issues specific to a virtual host.
-                    vhost,     
-    # host: The host header of the request: Similar to vhost, used to analyze traffic and performance for different hosts.
-                    host,    
-    # hosting_site: The site being hosted: Track traffic and performance for different hosted sites, useful in multi-site hosting environments.
-                    hosting_site,     
-    # pid: The process ID of the server process handling the request : Debugging and performance analysis, identify issues with specific server processes.
-                    pid,    
-    # request_time: The time taken to process the request, in milliseconds: Analyze server performance, identify slow requests, and optimize response times.
-                    request_time,    
-    # forwarded_for: The original IP address of the client, used when the request is forwarded by a proxy: Track the true origin of requests, useful for identifying clients behind proxies.
-                    forwarded_for,   
-    # request_id: A unique identifier for the request: Trace and debug specific requests, correlate logs across different systems.
-                     request_id,     
-    # location: The location header of the request, often used in redirects : Track redirects, analyze the flow of traffic, and identify potential issues with redirection.
-                    location )) 
+  
+  access_log2 <- access_log |> 
+    dplyr::select(c(ip, client_id, user_id, timestamp, request, status, size, 
+                    referer, user_agent, vhost, host, hosting_site, pid, 
+                    request_time, forwarded_for, request_id, location))
+  
   return(access_log2)
 }
 ```
@@ -272,7 +276,7 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ---
 
-## device_type
+## Device Type
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # HTTP Status Codes
@@ -290,7 +294,7 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ---
 
-## referrer_type
+## Referrer Type
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 # HTTP Status Codes
@@ -305,6 +309,114 @@ mygg <- ggplot(df |> dplyr::filter(   ! is.na(referrer_type)),
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
+
+## Map
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Get world map data from rnaturalearth
+world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf") |>
+  # Remove Antarctica
+  dplyr::filter(sovereignt != "Antarctica") |>
+  # Transform the world map to Bertin 1953 projection
+  # sf::st_transform(world, crs = "+proj=bertin1953")
+  # Transform the world map to Robinson projection
+  sf::st_transform(world, crs = "ESRI:54030")
+
+# # Calculate centroids for each country
+# world_centroids <- sf::st_centroid(world) %>%
+#   # Extract coordinates from the geometry column
+#   mutate(long = sf::st_coordinates(.)[,1],
+#          lat = sf::st_coordinates(.)[,2])
+## Better alternative
+centroid <- read.csv("https://github.com/gavinr/world-countries-centroids/raw/refs/heads/master/dist/countries.csv")
+
+## Remove centroid for sub territories
+centroid.unique <- centroid |>
+  dplyr::filter( ISO == AFF_ISO )|>
+  dplyr::filter( COUNTRY != "Canarias" ) |>
+  # Convert to an sf object
+  sf::st_as_sf(coords = c("longitude", "latitude"), crs = 4326)  |>
+  # Transform the coordinates
+  sf::st_transform(crs = "ESRI:54030") |>
+# Extract the transformed coordinates back into separate columns
+#centroid.unique1 <- centroid.unique
+  # Extract the transformed coordinates back into separate columns
+  dplyr::mutate(long = sf::st_coordinates(geometry)[,1],
+                lat = sf::st_coordinates(geometry)[,2])
+
+
+## Cehcking we are good
+#duplicated(centroid.unique$ISO)
+#nrow(centroid.unique)
+#length(unique(centroid.unique$ISO))
+
+
+data.unique <- df |>
+  dplyr::group_by(iplocation_continent, iplocation_country ) |>
+  dplyr::summarise(total = dplyr::n()) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(ISO = countrycode::countrycode(iplocation_country,
+                                         origin = "country.name",
+                                         destination ="iso2c" )) |>
+  dplyr::arrange(desc(total))
+
+ 
+
+## Checking
+#nrow(data.unique)
+#(unique(data.unique$ISO))
+
+data.centroid <- data.unique  |>
+  # Merge the sample data with the centroids data
+  left_join(centroid.unique, by = c( "ISO"))
+
+
+# Create natural breaks for the value classes
+breaks <- classInt::classIntervals(data.centroid$total, n = 5, style = "jenks")$brks
+labels <- paste0("(", round(breaks[-length(breaks)], 1), " - ", round(breaks[-1], 1), "]")
+
+label_top_10 <-  data.centroid  |>
+                 dplyr::arrange(desc(total)) |> 
+                dplyr::slice_head(n = 10) |>
+                dplyr::mutate( label = paste0(
+                  ISO, ": ",
+                scales::label_number(accuracy = 1, scale_cut = cut_short_scale())(total),
+                "$"))
+ 
+ 
+# Plot the world map with proportional symbols at centroids
+ggplot(data = world) +
+  geom_sf(fill = "lightgray", alpha = 0.8, color = "white") +
+  geom_point(data = data.centroid,
+             aes(x = long,
+                 y = lat,
+                 size = total),
+             color = "#0033A0", alpha = 0.5) +
+  ggrepel::geom_label_repel(data = label_top_10,  
+                            aes(x = long,
+                                y = lat,
+                               # label = scales::label_number(accuracy = 1, scale_cut = cut_short_scale())(total)) 
+                                label = label)    ) +
+  scale_size_continuous(range = c(1, 20),breaks = 1:5, labels = labels) + # 
+  labs(
+    title = "Web Traffic",
+    subtitle = paste0("Number of hits: ",
+                      scales::label_number(accuracy = 1,   scale_cut = cut_short_scale()) (sum(data$total)),
+                      "$"),
+    x="",
+    y = "",
+    caption = "Source: IOM Access Logs",
+       size = "Value") +
+  coord_sf() +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        legend.position = "right")
+
+
+```
+
+
 
 ---
 

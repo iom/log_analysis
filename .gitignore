@@ -47,3 +47,7 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+## Do not put data under git...
+data-raw/
+ip/

@@ -643,6 +643,7 @@ mygg <-  df    |>
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
+---
 
 ##  Detecting Security Threats
 
@@ -707,6 +708,7 @@ user_features <- log_sessions |>
   ) |>
   dplyr::ungroup()
 
+dplyr::glimpse(user_features)
 
 ```
 
@@ -738,71 +740,142 @@ user_features <- log_sessions |>
 
 <!--  * _v-test_ If the v-test is positive, it means that the category is over-expressed for the category and if the v-test is negative it means that the category is under-expressed for the category.What is interesting in the v-test is only the sign of the v-test. -->
 
+```{r mca, include=FALSE,  message = FALSE, warning = FALSE}
+# dput(names(user_features ))
+user_features.sel  <- user_features |>
+  dplyr::select(iplocation_continent, iplocation_country2,
+  session_duration, pages_visited,
+  unique_site, top_site, unique_referer, top_device_type,
+  top_referrer_type)
+  
 
-```{r, echo=FALSE, warning=FALSE}
-data2 <- user_features |>
-
-data.sample <- data2[sample(1:nrow(data2), 10000,replace=FALSE), ]
+data.sample <- user_features.sel[sample(1:nrow(user_features.sel), 10000,replace=FALSE), ]
 
 library(FactoMineR) ## Multiple correspondence analysis and classification
 library(factoextra)
 # Multiple correspondence analysis
-data.mca <- MCA(data.sample, graph=FALSE)
-fviz_mca_ind(data.mca, col.ind = "blue", label="none", addEllipses = TRUE, ellipse.level = 0.95, jitter = list(what= "point")) +
-  theme_minimal() +
-  labs(title = "Geometric representation of Individuals in a cloud of points" )
+data.mca <- FactoMineR::MCA(data.sample, graph=FALSE)
 
 ```
 
-## Composition of the 2 axis
-```{r, echo=FALSE, warning=FALSE}
-## Contribution of top 10 variables
-fviz_contrib(data.mca, choice = "var", axes = 1, top = 15) + theme_minimal() +
-  labs(title = "Contribution of the top 15  variables to the first axis" )  +
-  coord_flip()
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+mygg <- factoextra::fviz_mca_ind(data.mca, 
+                    col.ind = "blue", 
+                    label="none", addEllipses = TRUE,
+                    ellipse.level = 0.95, jitter = list(what= "point")) +
+  labs(title = "Geometric representation of Individuals in a cloud of points" ) +
+  iomthemes::theme_iom(  font_size = 18) 
 
-fviz_contrib(data.mca, choice = "var", axes = 2, top = 15) + theme_minimal() +
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Composition of the first axis
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+## Contribution of top 10 variables
+mygg <- factoextra::fviz_contrib(data.mca, choice = "var", axes = 1, top = 15) + 
+  labs(title = "Contribution of the top 15  variables to the first axis" )  +
+  coord_flip()+
+  iomthemes::theme_iom(  font_size = 18) 
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Composition of the second axis
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+## Contribution of top 10 variables
+mygg <- factoextra::fviz_contrib(data.mca, choice = "var", axes = 2, top = 15) + theme_minimal() +
   labs(title = "Contribution of the top 15 variables to the second axis" )  +
-  coord_flip()
+  coord_flip() +
+  iomthemes::theme_iom(  font_size = 18) 
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
 ## Categories Representation
-```{r, echo=FALSE, warning=FALSE}
-fviz_mca_var(data.mca, labelsize = 3, pointsize = 0, select.var = list(contrib = 15)) +
-  labs(title = "Variable categories representation for the top 15 contributions" )  +
-  theme_minimal()
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+mygg <- factoextra::fviz_mca_var(data.mca, 
+                                 labelsize = 3, 
+                                 pointsize = 0,
+                                 select.var = list(contrib = 15)) +
+  labs(title = "Variable categories representation for the top 15 contributions" ) +
+  iomthemes::theme_iom(  font_size = 18)
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
-## Hierarchical Classification
-```{r, echo=FALSE, warning=FALSE}
+---
 
+## Hierarchical Classification
+
+```{r clusterh, include=FALSE,  message = FALSE, warning = FALSE}
 ## Predict projection for new rows with Multiple Correspondence Analysis
 
 #data.predict <- predict(data.mca, data2)
 
-data.mca.hcpc <- HCPC(data.mca, nb.clust=-1, min=3, max=4, graph=FALSE, order=FALSE, consol=TRUE, kk=1000)
+data.mca.hcpc <- FactoMineR::HCPC(data.mca, 
+                      nb.clust=-1, 
+                      min=3, max=4, 
+                      graph=FALSE, 
+                      order=FALSE, 
+                      consol=TRUE, 
+                      kk=1000)
 
-kable(data.mca.hcpc$desc.var$test.chi2, digits = 4, caption = "Ordered importance of variable contributions to profiles")
-# Visualize dendrogram
-#fviz_dend(data.mca.hcpc, show_labels = FALSE, rect = TRUE)
-#fviz_dend(data.mca.hcpc, cex = 0.5, k = 4,  color_labels_by_k = TRUE,  title="Hierarchical classification",  horiz=TRUE, rect = TRUE)
-
-plot(data.mca.hcpc, choice="tree", title="Hierarchical classification",  horiz=TRUE, tree.barplot=FALSE, cex = 0.6)
-
-plot(data.mca.hcpc, title="3D view within the cloud of point of the profiles")
-plot(data.mca.hcpc, choice="map", title="profiles within the cloud of points")
-
-
-
-
-
-# Visualize cluster
-#fviz_cluster(data.mca.hcpc, ellipse.type = "convex")
+# kable(data.mca.hcpc$desc.var$test.chi2, 
+#       digits = 4, 
+#       caption = "Ordered importance of variable contributions to profiles")
 
 ```
 
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+
+
+# Visualize dendrogram
+#fviz_dend(data.mca.hcpc, show_labels = FALSE, rect = TRUE)
+mygg <- factoextra::fviz_dend(data.mca.hcpc,
+                              cex = 0.5, k = 4,  
+                              color_labels_by_k = TRUE,
+                              title="Hierarchical classification",
+                              horiz=TRUE, rect = TRUE) +
+  coord_flip() +
+  iomthemes::theme_iom(  font_size = 18)
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+# plot(data.mca.hcpc, choice="tree", title="Hierarchical classification",  horiz=TRUE, tree.barplot=FALSE, cex = 0.6)
+# 
+# plot(data.mca.hcpc, title="3D view within the cloud of point of the profiles")
+# plot(data.mca.hcpc, choice="map", title="profiles within the cloud of points")
+# 
+
+```
+
+---
+
+## Clusters
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+mygg <- factoextra::fviz_cluster(data.mca.hcpc, ellipse.type = "convex") +
+  iomthemes::theme_iom(  font_size = 18)
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+ 
+
+```
+
+---
+
 ## Modalities within each group
+
 Only variable modalities for which critical probability is below 0.02 are used.
+
 ```{r, echo=FALSE, warning=FALSE}
 
 kable(data.mca.hcpc$desc.var$category$`1`, digits = 2, caption = "Description of modalities contribution to Profile 1")
@@ -820,7 +893,8 @@ kable(data.mca.hcpc$desc.var$category$`4`, digits = 2, caption = "Description of
 
 ## Overview of groups
 
-```{r, echo=FALSE, warning=FALSE}
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 
 cluster <- data.mca.hcpc$data.clust
 cluster$clust <- as.character(cluster$clust)
@@ -913,13 +987,13 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
 
 ---
-##  Website Restructuring/Merging Insights  
+##  Website Restructuring Insights  
 
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 
 ###  Content Popularity Analysis  ######
-page_analysis <- log_df |>
+page_analysis <- log_sessions |>
   count(request_resource) |>
   mutate(pct = n / sum(n)) |>
   arrange(desc(n))
@@ -936,26 +1010,19 @@ page_analysis |> slice_head(n = 10)
 
 Use the personas and navigation patterns to guide restructuring:
 
-```{r userpersonna, include=FALSE,  message = FALSE, warning = FALSE}
-### B. Navigation Path Analysis ######
-
-library(clickstream)
-
-# Convert sessions to clickstreams
+```{r clickstream, include=FALSE,  message = FALSE, warning = FALSE}
 sessions <- log_sessions |>
-  group_by(session_id) |>
-  summarise(path = paste(request_resource, collapse = " > "))
+  dplyr::group_by(session_id) |>
+  dplyr::summarise(path = paste(request_resource, collapse = " > "))
+#summary(nchar(sessions$path))
+## Filter Short Sessions If your sessions are too short, remove sessions with fewer than 2 clicks:
 
+sessions <- sessions[nchar(sessions$path) > 3, ]
 library(clickstream)
-
 # Convert sessions to clickstreams
-sessions <- log_sessions %>%
-  group_by(session_id) %>%
-  summarise(path = paste(requested_page, collapse = " > "))
-
+clickstreams <- clickstream::as.clickstreams(sessions$path)
 # Build Markov chain model
-clickstreams <- as.clickstreams(sessions$path)
-mc <- fitMarkovChain(clickstreams)
+mc <- clickstream::fitMarkovChain(clickstreams, order = 1)
 
 # Plot common paths
 plot(mc)

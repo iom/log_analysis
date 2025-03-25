@@ -368,7 +368,8 @@ data.unique <- df |>
 
 data.centroid <- data.unique  |>
   # Merge the sample data with the centroids data
-  left_join(centroid.unique, by = c( "ISO"))
+  left_join(centroid.unique, by = c( "ISO")) |>
+  dplyr::filter(! (is.na(ISO)))
 
 
 # Create natural breaks for the value classes
@@ -378,14 +379,16 @@ labels <- paste0("(", round(breaks[-length(breaks)], 1), " - ", round(breaks[-1]
 label_top_10 <-  data.centroid  |>
                  dplyr::arrange(desc(total)) |> 
                 dplyr::slice_head(n = 10) |>
-                dplyr::mutate( label = paste0(
-                  ISO, ": ",
-                scales::label_number(accuracy = 1, scale_cut = cut_short_scale())(total),
-                "$"))
+                dplyr::mutate(
+                  label = paste0(
+                    ISO, ": ", 
+                    scales::comma(total) # Safer alternative
+                  )
+                )
  
  
 # Plot the world map with proportional symbols at centroids
-ggplot(data = world) +
+map <- ggplot(data = world) +
   geom_sf(fill = "lightgray", alpha = 0.8, color = "white") +
   geom_point(data = data.centroid,
              aes(x = long,
@@ -395,24 +398,23 @@ ggplot(data = world) +
   ggrepel::geom_label_repel(data = label_top_10,  
                             aes(x = long,
                                 y = lat,
-                               # label = scales::label_number(accuracy = 1, scale_cut = cut_short_scale())(total)) 
+                                # label = scales::label_number(accuracy = 1, scale_cut = cut_short_scale())(total)) 
                                 label = label)    ) +
   scale_size_continuous(range = c(1, 20),breaks = 1:5, labels = labels) + # 
   labs(
     title = "Web Traffic",
     subtitle = paste0("Number of hits: ",
-                      scales::label_number(accuracy = 1,   scale_cut = cut_short_scale()) (sum(data$total)),
-                      "$"),
+                      scales::label_number(accuracy = 1,   scale_cut = cut_short_scale()) (sum(data.centroid$total)),
+                      ""),
     x="",
     y = "",
     caption = "Source: IOM Access Logs",
-       size = "Value") +
+    size = "Value") +
   coord_sf() +
-  theme_void() +
-  theme(plot.title = element_text(hjust = 0.5),
-        plot.subtitle = element_text(hjust = 0.5),
-        legend.position = "right")
+  iomthemes::theme_iom(void = TRUE)
 
+
+dml(ggobj = map)
 
 ```
 

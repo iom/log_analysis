@@ -223,9 +223,12 @@ combined_log_data_clean <- combined_log_data |>
     #                                           ignore_case = TRUE)),
     #                          "mobile", "desktop"),
     referrer_type = case_when(
-          str_detect(referer, "google|bing") ~ "search",
-          str_detect(referer, "facebook|twitter") ~ "social",
-          str_detect(referer, "iom.int") ~ "iom",
+          str_detect(referer, regex("google|bing|search|yandex",
+                                              ignore_case = TRUE)) ~ "search",
+          str_detect(referer, regex("facebook|twitter",
+                                              ignore_case = TRUE)) ~ "social",
+          str_detect(referer, regex("iom|migration",
+                                              ignore_case = TRUE)) ~ "iom",
           is.na(referer) ~ "direct",
           TRUE ~ "other"
         )) |>
@@ -258,6 +261,16 @@ combined_log_data_clean <- combined_log_data |>
  # Anything we can clean for PID
 # levels(as.factor(df$pid))
 
+# table(combined_log_data_clean$referer_site, useNA = "ifany")
+# table(combined_log_data_clean$referer_site2, useNA = "ifany")
+# table(combined_log_data_clean$host, useNA = "ifany")
+# table(combined_log_data_clean$host2, useNA = "ifany")
+# table(combined_log_data_clean$iplocation_country, useNA = "ifany")
+# table(combined_log_data_clean$iplocation_country2, useNA = "ifany")
+# table(combined_log_data_clean$referrer_type, useNA = "ifany")
+# table(combined_log_data_clean$device_type, useNA = "ifany")
+# table(combined_log_data_clean$status_label, useNA = "ifany")
+
 # Assuming your data frame is named 'df' - a few more filters to get something
 # we can analyse
 df <- combined_log_data_clean |>
@@ -271,6 +284,16 @@ df <- combined_log_data_clean |>
 
      # remove all rows with ip value = "-"
      dplyr::filter(ip != "-")
+
+# table(df$referer_site, useNA = "ifany")
+# table(df$referrer_type, useNA = "ifany")
+# table(df$referer_site2, useNA = "ifany")
+# table(df$host, useNA = "ifany")
+# table(df$host2, useNA = "ifany")
+# table(df$iplocation_country, useNA = "ifany")
+# table(df$iplocation_country2, useNA = "ifany")
+# table(df$device_type, useNA = "ifany")
+# table(df$status_label, useNA = "ifany")
 
 ```
 
@@ -696,21 +719,134 @@ user_features <- log_sessions |>
     session_end = max(timestamp, na.rm = TRUE),
     session_duration = as.numeric(difftime(session_end, session_start, units = "secs")),
     pages_visited = dplyr::n(),
-   # unique_pages = dplyr::n_distinct(request_resource),
+    unique_pages = dplyr::n_distinct(request_resource),
   #  top_page = request_resource[which.max(tabulate(match(request_resource, unique(request_resource))))],
     unique_site = dplyr::n_distinct(host2),
     top_site = host2[which.max(tabulate(match(host2, unique(host2))))],
     unique_referer = dplyr::n_distinct(referer_site2),
-    top_site = referer_site2[which.max(tabulate(match(referer_site2, unique(referer_site2))))],
+    top_referer = referer_site2[which.max(tabulate(match(referer_site2, unique(referer_site2))))],
     top_device_type = device_type[which.max(tabulate(match(device_type, unique(device_type))))],
     top_referrer_type = referrer_type[which.max(tabulate(match(referrer_type, unique(referrer_type))))]
    
   ) |>
   dplyr::ungroup()
+```
 
-dplyr::glimpse(user_features)
+---
+
+## Distribution of Session Duration
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Traffic by Virtual Host
+mygg <- user_features   |> 
+  ggplot( 
+   aes(x = session_duration) ) + 
+   geom_histogram(#bins = 5 ,
+                  alpha = 0.7, 
+                 fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
+  labs(title="Distribution of Session Duration", x=" ", y=" ") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")  
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+---
+
+## Distribution of pages visited
+
+```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
+# Traffic by Virtual Host
+mygg <- user_features   |> 
+  ggplot( 
+   aes(x = pages_visited) ) + 
+   geom_histogram(#bins = 5 ,
+                  alpha = 0.7, 
+                 fill= iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue
+                 color = "white") +
+  labs(title="Distribution of pages visited", x=" ", y=" ") +
+  iomthemes::theme_iom(  font_size = 18,  grid = "X")  
+
+
+dml(ggobj = mygg, fonts = list(serif = 'Lato'))
+```
+
+```{r usersessionsample, include=FALSE,  message = FALSE, warning = FALSE}
+# dput(names(user_features ))
+user_features.sel  <- user_features |>
+  dplyr::select(session_duration, pages_visited, unique_pages, unique_site, unique_referer, 
+         iplocation_country2, top_site, top_device_type, top_referrer_type) |>
+  dplyr::mutate_if(is.character, as.factor) |>
+  dplyr::mutate( session_duration = dplyr::if_else(session_duration==0,
+                                                   1,session_duration)) |>
+ 
+ # dplyr::filter( !(is.na(iplocation_continent)) ) |>
+  dplyr::filter( !(is.na(iplocation_country2)) ) 
+
+# Checking for missing values
+#colSums(is.na(user_features.sel))
+  
+## sample to be able to run clustering...
+data.sample <- user_features.sel |>
+               dplyr::slice_sample(n = 10000) |>
+  ## convert to factor
+  dplyr::mutate(
+    iplocation_country2 = as.factor(iplocation_country2),
+    top_site = as.factor(top_site),
+    top_device_type = as.factor(top_device_type),
+    top_referrer_type = as.factor(top_referrer_type)
+  )
+rownames(data.sample) <- NULL
+# ## Check for Duplicate Row Names
+# if(any(duplicated(rownames(data.sample)))){
+#   rownames(data.sample) <- make.unique(rownames(data.sample))}
+# 
+dplyr::glimpse(user_features.sel)
 
 ```
+
+
+```{r}
+# Prepare Data for Clustering
+# numerical_data <- data.sample |>
+#   dplyr::select(session_duration, pages_visited, unique_pages, unique_site, unique_referer) |>
+#   scale()
+# 
+# # Perform Principal Component Analysis (PCA)
+# pca_result <- PCA(numerical_data, graph = FALSE)
+# 
+# # Visualizing PCA
+# fviz_eig(pca_result)
+# 
+# # Hierarchical Clustering on Principal Components (HCPC)
+# hcpc_result <- HCPC(pca_result,
+#                     nb.clust = -1, 
+#                     min = 3, 
+#                     max = 4, 
+#                     graph = FALSE, 
+#                     consol = TRUE, 
+#                     kk = 1000)
+# 
+# # Visualizing Clusters
+# fviz_cluster(hcpc_result, geom = "point", ellipse.type = "convex", ggtheme = theme_minimal())
+# 
+# # Assign clusters to the original dataset
+# data.sample$cluster <- hcpc_result$data.clust$clust
+# 
+# # Persona Creation - Profiling Users
+# persona_profiles <- data.sample |>
+#   group_by(cluster) %>%
+#   summarise(
+#     avg_session_duration = mean(session_duration, na.rm = TRUE),
+#     avg_pages_visited = mean(pages_visited, na.rm = TRUE),
+#     common_device = names(sort(table(top_device_type), decreasing = TRUE)[1]),
+#     common_referrer = names(sort(table(top_referrer_type), decreasing = TRUE)[1])
+#   )
+# 
+# print(persona_profiles)
+```
+
 
 ---
 
@@ -722,47 +858,123 @@ dplyr::glimpse(user_features)
 <!-- This approach implies 5 simple steps: -->
 
 <!--  *  __Dimensionnality reduction__: Reduce the numbers of dimensions to two main composite dimensions in order to represent each observation in a 2D space. -->
-<!--  *  __Composition of the 2 axis__: Describe the componnent of each axis -->
-<!--  *  __Categories Representation__: This allow to visualise how close different variables are -->
+<!--  *  __Composition of the 2 axis__: Describe the component of each axis -->
+<!--  *  __Categories Representation__: This allow to visualize how close different variables are -->
 <!--  *  __Clustering__: Records are grouped according to profile using the underlying proximity between variables -->
 <!--  *  __Modalities within each group__: Describe the main variable modalities that describe the profile. -->
 <!--  *  __Overview of groups__: Display the frequency of each group as well the breakdown of specific needs within each group. -->
 
 <!-- The variable modalities in each of the profiles can be __interpreted__ using the following information:  -->
 
-<!--  * _Cla/Mod_ is the pourcentage of records who have that modality and who are in that the profile (for instance: 50.3% of the cases who have a head of family who marrital status is single also belongs to profile 1) -->
+<!--  * _Cla/Mod_ is the pourcentage of records who have that modality and who are in that the profile  -->
 
-<!--  * _Mod/Cla_ is the pourcentage of records in that profile who have that modality (for instance: 81.5% of the cases of profile  1 have a head of family who marrital status is single ) -->
+<!--  * _Mod/Cla_ is the pourcentage of records in that profile who have that modality  -->
 
-<!--  * _Global_ is the global pourcentage of all records who have that modality (for instance: in all population, 51.67% of of the cases who have a head of family who marrital status is single.) -->
+<!--  * _Global_ is the global pourcentage of all records who have that modality -->
 
 <!--  * _p-value_ provides an idea of the significant of the difference between Mod/Cla proportation & Global. If p-value is less than 0.05, then one category is significantly linked to another categories  -->
 
 <!--  * _v-test_ If the v-test is positive, it means that the category is over-expressed for the category and if the v-test is negative it means that the category is under-expressed for the category.What is interesting in the v-test is only the sign of the v-test. -->
 
 ```{r mca, include=FALSE,  message = FALSE, warning = FALSE}
-# dput(names(user_features ))
-user_features.sel  <- user_features |>
-  dplyr::select(iplocation_continent, iplocation_country2,
-  session_duration, pages_visited,
-  unique_site, top_site, unique_referer, top_device_type,
-  top_referrer_type)
-  
 
-data.sample <- user_features.sel[sample(1:nrow(user_features.sel), 10000,replace=FALSE), ]
 
-library(FactoMineR) ## Multiple correspondence analysis and classification
-library(factoextra)
+#library(FactoMineR) ## Multiple correspondence analysis and classification
+#library(factoextra)
 # Multiple correspondence analysis
-data.mca <- FactoMineR::MCA(data.sample, graph=FALSE)
+data.mca <- FactoMineR::MCA(data.sample,
+                            quali.sup = which(sapply(data.sample, is.factor)),
+                            #quali.sup = 6:9,
+                            graph=FALSE)
+```
+
+```{r famd, include=FALSE,  message = FALSE, warning = FALSE}
+
+# Factor Analysis of Mixed Data
+famd_result <- FactoMineR::FAMD (data.sample,
+                            graph=FALSE) 
+# Extract FAMD principal components
+#dataset_for_clustering <- famd_result$ind$coord
+dataset_for_clustering <- as.data.frame(famd_result$ind$coord)
+
+# Use the first 5 dimensions to get more variance
+dataset_for_clustering <- as.data.frame(famd_result$ind$coord[, 1:5])
+
+
+# Perform Hierarchical Clustering on Principal Components (HCPC)
+hcpc_result <- FactoMineR::HCPC(dataset_for_clustering, nb.clust = -1, min = 3, max = 4, graph = FALSE, consol = TRUE, kk = 1000)
+
+# Visualizing Clusters
+fviz_cluster(hcpc_result, geom = "point", ellipse.type = "convex", ggtheme = theme_minimal())
+
+
+# Assign clusters to the original dataset
+data.sample$cluster.famd <- hcpc_result$data.clust$clust
+
+# Persona Creation - Profiling Users
+persona_profiles <- data.sample %>%
+  group_by(cluster) %>%
+  summarise(
+    avg_session_duration = mean(session_duration, na.rm = TRUE),
+    avg_pages_visited = mean(pages_visited, na.rm = TRUE),
+    common_device = names(sort(table(top_device_type), decreasing = TRUE)[1]),
+    common_referrer = names(sort(table(top_referrer_type), decreasing = TRUE)[1]),
+    common_country = names(sort(table(iplocation_country2), decreasing = TRUE)[1]),
+    common_site = names(sort(table(top_site), decreasing = TRUE)[1])
+  )
+
+
+
+# 2. Try K-Means Instead of HCPC
+# 
+# Since the dataset is large, k-means may work better than hierarchical clustering:
+# This method is faster and may yield better separation.
+set.seed(123)  # For reproducibility
+kmeans_result <- kmeans(dataset_for_clustering, centers = 4, nstart = 25)
+data.sample$clusterkmean <- kmeans_result$cluster
+
+# Visualize clusters
+fviz_cluster(list(data = dataset_for_clustering, cluster = kmeans_result$cluster), 
+             geom = "point", ellipse.type = "convex", ggtheme = theme_minimal())
+
+
+
+# 3. Use Gaussian Mixture Models (GMM) for Probabilistic Clustering
+
+#Unlike k-means, which assumes clusters are spherical, GMM allows for elliptical clusters:
+
+# GMM assigns probabilities to each cluster, making it more flexible.
+library(mclust)
+gmm_result <- mclust::Mclust(dataset_for_clustering)
+data$cluster <- gmm_result$classification
+
+fviz_cluster(list(data = dataset_for_clustering, cluster = gmm_result$classification), 
+             geom = "point", ellipse.type = "convex", ggtheme = theme_minimal())
+
+
+
+# Plot cluster densities
+plot(gmm_result, what = "classification")
+
+# 4. Increase Feature Engineering
+# 
+# You could create new variables:
+# 
+#     Interaction terms: session_duration * pages_visited
+# 
+#     Log transformations: log(session_duration + 1)
+# 
+#     Ratios: unique_pages / pages_visited
 
 ```
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 mygg <- factoextra::fviz_mca_ind(data.mca, 
-                    col.ind = "blue", 
-                    label="none", addEllipses = TRUE,
-                    ellipse.level = 0.95, jitter = list(what= "point")) +
+                    col.ind = iomthemes::iom_pal(5, "pal_blue")[1], ## IOM blue "blue", 
+                    label="none",
+                    addEllipses = TRUE,
+                    ellipse.level = 0.95, 
+                    jitter = list(what= "point")) +
   labs(title = "Geometric representation of Individuals in a cloud of points" ) +
   iomthemes::theme_iom(  font_size = 18) 
 
@@ -776,10 +988,10 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 ## Contribution of top 10 variables
-mygg <- factoextra::fviz_contrib(data.mca, choice = "var", axes = 1, top = 15) + 
-  labs(title = "Contribution of the top 15  variables to the first axis" )  +
-  coord_flip()+
-  iomthemes::theme_iom(  font_size = 18) 
+mygg <- factoextra::fviz_contrib(data.mca, choice = "var", axes = 1, top = 15) +
+  labs(title = "Contribution of the top 15 variables to the first axis") +
+  coord_flip() +
+  iomthemes::theme_iom(font_size = 18)
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 ```
@@ -790,10 +1002,10 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 
 ```{r layout='Title and Content', ph=officer::ph_location_type(type="body")}
 ## Contribution of top 10 variables
-mygg <- factoextra::fviz_contrib(data.mca, choice = "var", axes = 2, top = 15) + theme_minimal() +
-  labs(title = "Contribution of the top 15 variables to the second axis" )  +
+mygg <- factoextra::fviz_contrib(data.mca, choice = "var", axes = 2, top = 15) +
+  labs(title = "Contribution of the top 15 variables to the second axis") +
   coord_flip() +
-  iomthemes::theme_iom(  font_size = 18) 
+  iomthemes::theme_iom(font_size = 18)
 
 
 dml(ggobj = mygg, fonts = list(serif = 'Lato'))
@@ -822,15 +1034,16 @@ dml(ggobj = mygg, fonts = list(serif = 'Lato'))
 #data.predict <- predict(data.mca, data2)
 
 data.mca.hcpc <- FactoMineR::HCPC(data.mca, 
-                      nb.clust=-1, 
-                      min=3, max=4, 
-                      graph=FALSE, 
-                      order=FALSE, 
-                      consol=TRUE, 
-                      kk=1000)
+                      nb.clust = -1,   # Automatic selection of the optimal number of clusters
+                      min = 3,         # Minimum number of clusters to consider
+                      max = 4,         # Maximum number of clusters to consider
+                      graph = FALSE,   # Disable graphical output
+                      order = FALSE,   # Do not reorder the data according to clustering results
+                      consol = TRUE,   # Enable consolidation of clustering results (improves stability)
+                      kk = 1000)       # Number of points used for hierarchical clustering tree representation
 
-# kable(data.mca.hcpc$desc.var$test.chi2, 
-#       digits = 4, 
+# kable(data.mca.hcpc$desc.var$test.chi2,
+#       digits = 4,
 #       caption = "Ordered importance of variable contributions to profiles")
 
 ```
